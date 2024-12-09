@@ -12,9 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Sanitização e validação das entradas
     $idProduto = filter_input(INPUT_POST, 'produto_id', FILTER_VALIDATE_INT);
     $quantidade = filter_input(INPUT_POST, 'quantidade', FILTER_VALIDATE_INT);
+    $formaPagamento = filter_input(INPUT_POST, 'forma_pagamento', FILTER_SANITIZE_STRING);
 
-    // Verifica se a quantidade e ID são válidos
-    if (!$quantidade || !$idProduto) {
+    // Verifica se a quantidade, ID e forma de pagamento são válidos
+    if (!$quantidade || !$idProduto || !$formaPagamento) {
         echo "<p style='color: red;'>Erro: Dados inválidos.</p>";
         exit;
     }
@@ -35,10 +36,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             // Registra a venda (podemos adicionar a data da venda)
-            $stmt = $pdo->prepare("INSERT INTO vendas (id_produto, quantidade, total, data_venda) VALUES (:id_produto, :quantidade, :total, NOW())");
+            $stmt = $pdo->prepare("INSERT INTO vendas (id_produto, quantidade, total, data_venda, forma_pagamento) 
+                                   VALUES (:id_produto, :quantidade, :total, NOW(), :forma_pagamento)");
             $stmt->bindParam(':id_produto', $idProduto, PDO::PARAM_INT);
             $stmt->bindParam(':quantidade', $quantidade, PDO::PARAM_INT);
             $stmt->bindParam(':total', $total, PDO::PARAM_STR);
+            $stmt->bindParam(':forma_pagamento', $formaPagamento, PDO::PARAM_STR);
             $stmt->execute();
 
             // Atualiza o estoque
@@ -169,19 +172,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <label for="quantidade">Quantidade:</label>
         <input type="number" name="quantidade" id="quantidade" min="1" required>
 
+        <!-- Novo campo para selecionar a forma de pagamento -->
+        <label for="forma_pagamento">Forma de Pagamento:</label>
+        <select name="forma_pagamento" id="forma_pagamento" required>
+            <option value="">Selecione a forma de pagamento</option>
+            <option value="debito">Débito</option>
+            <option value="credito">Crédito</option>
+            <option value="pix">Pix</option>
+            <option value="dinheiro">Dinheiro</option>
+        </select>
+
         <button type="submit">Registrar Venda</button>
     </form>
 
-    <script>
-        // Limitar a quantidade de acordo com o estoque disponível
-        document.querySelector('select[name="produto_id"]').addEventListener('change', function() {
-            var estoque = this.options[this.selectedIndex].getAttribute('data-estoque');
-            var quantidadeInput = document.querySelector('input[name="quantidade"]');
-            quantidadeInput.setAttribute('max', estoque);  // Define o valor máximo
-            if (quantidadeInput.value > estoque) {
-                quantidadeInput.value = estoque;  // Ajusta a quantidade caso o valor seja maior que o estoque
-            }
-        });
-    </script>
+    <!-- Botão de voltar para index.php -->
+    <p style="text-align: center;">
+        <a href="index.php" style="background-color: #FF6347; padding: 10px 20px; border-radius: 5px; color: white; font-weight: bold; text-decoration: none;">Voltar para Início</a>
+    </p>
 </body>
 </html>
