@@ -7,57 +7,78 @@ try {
     die("Erro de conexão: " . $e->getMessage());
 }
 
-// Verifica se o formulário foi enviado
+// Processamento da venda
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Sanitização e validação das entradas
-    $idProduto = filter_input(INPUT_POST, 'produto_id', FILTER_VALIDATE_INT);
-    $quantidade = filter_input(INPUT_POST, 'quantidade', FILTER_VALIDATE_INT);
-    $formaPagamento = filter_input(INPUT_POST, 'forma_pagamento', FILTER_SANITIZE_STRING);
+    $produtos = $_POST['produto_id'];  // Array de IDs de produtos
+    $quantidades = $_POST['quantidade'];  // Array de quantidades
+    $formaPagamento = $_POST['forma_pagamento'];  // Forma de pagamento
+    $valorPago = $_POST['valor_pago'];  // Valor pago (único para todos os produtos)
 
-    // Verifica se a quantidade, ID e forma de pagamento são válidos
-    if (!$quantidade || !$idProduto || !$formaPagamento) {
+    // Verifica se os dados são válidos
+    if (empty($produtos) || empty($quantidades) || !$formaPagamento) {
         echo "<p style='color: red;'>Erro: Dados inválidos.</p>";
         exit;
     }
 
     try {
-        // Busca o produto para pegar o preço e o estoque
-        $stmt = $pdo->prepare("SELECT * FROM produtos WHERE id = :id");
-        $stmt->bindParam(':id', $idProduto, PDO::PARAM_INT);
-        $stmt->execute();
-        $produto = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Inicia transação
+        $pdo->beginTransaction();
+        
+        $totalVenda = 0;
 
-        // Verifica se o produto existe e se há estoque suficiente
-        if ($produto && $produto['quantidade'] >= $quantidade) {
-            // Calcula o total da venda
-            $total = $produto['preco'] * $quantidade;
+        // Processa cada produto e calcula o total
+        foreach ($produtos as $index => $idProduto) {
+            $quantidade = $quantidades[$index];
 
-            // Inicia transação
-            $pdo->beginTransaction();
-
-            // Registra a venda (podemos adicionar a data da venda)
-            $stmt = $pdo->prepare("INSERT INTO vendas (id_produto, quantidade, total, data_venda, forma_pagamento) 
-                                   VALUES (:id_produto, :quantidade, :total, NOW(), :forma_pagamento)");
-            $stmt->bindParam(':id_produto', $idProduto, PDO::PARAM_INT);
-            $stmt->bindParam(':quantidade', $quantidade, PDO::PARAM_INT);
-            $stmt->bindParam(':total', $total, PDO::PARAM_STR);
-            $stmt->bindParam(':forma_pagamento', $formaPagamento, PDO::PARAM_STR);
+            // Busca o produto para pegar o preço e o estoque
+            $stmt = $pdo->prepare("SELECT * FROM produtos WHERE id = :id");
+            $stmt->bindValue(':id', $idProduto, PDO::PARAM_INT);
             $stmt->execute();
+            $produto = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Atualiza o estoque
-            $novoEstoque = $produto['quantidade'] - $quantidade;
-            $stmt = $pdo->prepare("UPDATE produtos SET quantidade = :quantidade WHERE id = :id");
-            $stmt->bindParam(':quantidade', $novoEstoque, PDO::PARAM_INT);
-            $stmt->bindParam(':id', $idProduto, PDO::PARAM_INT);
-            $stmt->execute();
+            // Verifica se o produto existe e se há estoque suficiente
+            if ($produto && $produto['quantidade'] >= $quantidade) {
+                // Calcula o total da venda para esse produto
+                $totalVenda += $produto['preco'] * $quantidade;
 
-            // Commit
-            $pdo->commit();
+                // Registra a venda
+                $stmt = $pdo->prepare("INSERT INTO vendas (id_produto, quantidade, total, data_venda, forma_pagamento) 
+                                       VALUES (:id_produto, :quantidade, :total, NOW(), :forma_pagamento)");
+                $stmt->bindValue(':id_produto', $idProduto, PDO::PARAM_INT);
+                $stmt->bindValue(':quantidade', $quantidade, PDO::PARAM_INT);
+                $stmt->bindValue(':total', $produto['preco'] * $quantidade, PDO::PARAM_STR);
+                $stmt->bindValue(':forma_pagamento', $formaPagamento, PDO::PARAM_STR);
+                $stmt->execute();
 
-            echo "<p style='color: green;'><strong>✔</strong> Venda registrada com sucesso!</p>";
-        } else {
-            echo "<p style='color: red;'><strong>✘</strong> Erro: Produto não encontrado ou estoque insuficiente.</p>";
+                // Atualiza o estoque
+                $novoEstoque = $produto['quantidade'] - $quantidade;
+                $stmt = $pdo->prepare("UPDATE produtos SET quantidade = :quantidade WHERE id = :id");
+                $stmt->bindValue(':quantidade', $novoEstoque, PDO::PARAM_INT);
+                $stmt->bindValue(':id', $idProduto, PDO::PARAM_INT);
+                $stmt->execute();
+            } else {
+                echo "<p style='color: red;'>Erro: Produto " . ($index + 1) . " não encontrado ou estoque insuficiente.</p>";
+                exit;
+            }
         }
+
+        // Verifica se o valor pago é suficiente
+        if ($valorPago < $totalVenda && $formaPagamento == 'dinheiro') {
+            echo "<p style='color: red;'>Erro: Valor pago insuficiente para o total da venda.</p>";
+            exit;
+        }
+
+        // Se o pagamento for em dinheiro, calcula o troco
+        $troco = 0;
+        if ($formaPagamento == 'dinheiro') {
+            $troco = $valorPago - $totalVenda;
+            echo "<p style='color: green;'><strong>Troco: R$ " . number_format($troco, 2, ',', '.') . "</strong></p>";
+        }
+
+        // Commit da transação
+        $pdo->commit();
+
+        echo "<p style='color: green;'><strong>✔</strong> Venda registrada com sucesso!</p>";
     } catch (Exception $e) {
         // Rollback em caso de erro
         $pdo->rollBack();
@@ -90,8 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         form {
-            background: rgba(255, 255, 255, 0.8);
-            padding: 20px;
+            background: rgba(141, 134, 134, 0.8);
+            padding: 10px;
             border-radius: 10px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             max-width: 400px;
@@ -100,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         label {
             font-weight: bold;
-            font-size: 14px;
+            font-size: 15px;
             color: #333;
             display: block;
             margin-bottom: 5px;
@@ -122,24 +143,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         button {
-            background-color: #4CAF50;
+            background-color:rgb(22, 17, 17);
             color: white;
             padding: 10px 20px;
             border: none;
-            border-radius: 5px;
+            border-radius: 05px;
             cursor: pointer;
             font-weight: bold;
             transition: background-color 0.3s ease;
-            width: 100%;
+            width: 49%;
         }
 
         button:hover {
-            background-color: #45a049;
+            background-color:rgb(86, 42, 218);
         }
 
         p {
             text-align: center;
             font-size: 14px;
+        }
+
+        #totalVenda {
+            font-weight: bold;
+            color: #2F4F4F;
+            font-size: 20px;
         }
 
         @media (max-width: 600px) {
@@ -155,24 +182,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <h1>Registrar Venda</h1>
-    <form method="POST">
-        <label for="produto_id">Produto:</label>
-        <select name="produto_id" required>
-            <option value="">Selecione um produto</option>
-            <?php
-            // Busca todos os produtos para exibir no formulário
-            $stmt = $pdo->query("SELECT * FROM produtos");
-            $produtos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($produtos as $produto) {
-                echo "<option value='{$produto['id']}' data-estoque='{$produto['quantidade']}' data-preco='{$produto['preco']}'>{$produto['nome']} - R$ {$produto['preco']}</option>";
-            }
-            ?>
-        </select>
+    <form method="POST" id="vendaForm">
+        <div id="produtos">
+            <!-- Campo inicial para selecionar um produto -->
+            <div class="produto-item">
+                <label for="produto_id[]">Produto:</label>
+                <select name="produto_id[]" required class="produto-select">
+                    <option value="">Selecione um produto</option>
+                    <?php
+                    // Busca todos os produtos para exibir no formulário
+                    $stmt = $pdo->query("SELECT * FROM produtos");
+                    $produtos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        <label for="quantidade">Quantidade:</label>
-        <input type="number" name="quantidade" id="quantidade" min="1" required>
+                    if ($produtos) {
+                        foreach ($produtos as $produto) {
+                            echo "<option value='{$produto['id']}' data-preco='{$produto['preco']}'>{$produto['nome']} - R$ {$produto['preco']}</option>";
+                        }
+                    } else {
+                        echo "<option value='' disabled>Sem produtos cadastrados</option>";
+                    }
+                    ?>
+                </select>
 
-        <!-- Novo campo para selecionar a forma de pagamento -->
+                <label for="quantidade[]">Quantidade:</label>
+                <input type="number" name="quantidade[]" min="1" required class="quantidade-input">
+                <span class="preco-item">R$ 0,00</span>
+            </div>
+        </div>
+
         <label for="forma_pagamento">Forma de Pagamento:</label>
         <select name="forma_pagamento" id="forma_pagamento" required>
             <option value="">Selecione a forma de pagamento</option>
@@ -182,12 +219,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <option value="dinheiro">Dinheiro</option>
         </select>
 
+        <div id="valor_pago_container" style="display: none;">
+            <label for="valor_pago">Valor Pago:</label>
+            <input type="number" name="valor_pago" step="0.01" min="0" placeholder="Digite o valor pago">
+        </div>
+
+        <p><strong>Total da Venda: R$ <span id="totalVenda">0,00</span></strong></p>
+
+        <button type="button" id="addProduto">Adicionar outro produto</button>
         <button type="submit">Registrar Venda</button>
     </form>
 
-    <!-- Botão de voltar para index.php -->
-    <p style="text-align: center;">
-        <a href="index.php" style="background-color: #FF6347; padding: 10px 20px; border-radius: 5px; color: white; font-weight: bold; text-decoration: none;">Voltar para Início</a>
+    <script>
+        // Atualiza o preço total de um item quando a quantidade ou o produto for alterado
+        function atualizarPrecoItem() {
+            const produtoSelects = document.querySelectorAll('.produto-select');
+            const quantidadeInputs = document.querySelectorAll('.quantidade-input');
+            const precoItems = document.querySelectorAll('.preco-item');
+            let totalVenda = 0;
+
+            produtoSelects.forEach((produtoSelect, index) => {
+                const quantidade = quantidadeInputs[index].value;
+                const precoUnitario = parseFloat(produtoSelect.options[produtoSelect.selectedIndex].getAttribute('data-preco'));
+                
+                if (quantidade && precoUnitario) {
+                    const precoTotalItem = precoUnitario * quantidade;
+                    precoItems[index].textContent = `R$ ${precoTotalItem.toFixed(2).replace('.', ',')}`;
+                    totalVenda += precoTotalItem;
+                } else {
+                    precoItems[index].textContent = `R$ 0,00`;
+                }
+            });
+
+            document.getElementById('totalVenda').textContent = totalVenda.toFixed(2).replace('.', ',');
+        }
+
+        // Adiciona mais produtos ao formulário
+        document.getElementById('addProduto').addEventListener('click', function() {
+            let novoProduto = document.querySelector('.produto-item').cloneNode(true);
+            document.getElementById('produtos').appendChild(novoProduto);
+            atualizarPrecoItem();
+        });
+
+        // Atualiza o total sempre que a quantidade ou o produto for alterado
+        document.getElementById('produtos').addEventListener('change', atualizarPrecoItem);
+        document.getElementById('produtos').addEventListener('input', atualizarPrecoItem);
+
+        // Exibe o campo para o valor pago quando a forma de pagamento for "dinheiro"
+        document.getElementById('forma_pagamento').addEventListener('change', function() {
+            var valorPagoContainer = document.getElementById('valor_pago_container');
+            if (this.value === 'dinheiro') {
+                valorPagoContainer.style.display = 'block';
+            } else {
+                valorPagoContainer.style.display = 'none';
+            }
+        });
+    </script>
+
+    <p>
+        <a href="index.php" style="background-color:rgb(19, 231, 15); padding: 10px 20px; border-radius: 5px; color: white; font-weight: bold; text-decoration: none; margin-right: 10px;">Voltar para Início</a>
+        <a href="gasto.php" style="background-color:rgb(128, 34, 235); padding: 10px 20px; border-radius: 5px; color: white; font-weight: bold; text-decoration: none;">Gasto Saída</a>
     </p>
 </body>
 </html>

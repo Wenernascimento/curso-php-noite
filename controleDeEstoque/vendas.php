@@ -1,7 +1,26 @@
 <?php
+
 // Conexão com o banco de dados
-$pdo = new PDO('mysql:host=localhost;dbname=estoque', 'root', '');
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+try {
+    $pdo = new PDO('mysql:host=localhost;dbname=estoque', 'root', '');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    die("Erro na conexão com o banco de dados: " . $e->getMessage());
+}
+
+// Função para excluir uma venda
+if (isset($_GET['delete'])) {
+    $idVenda = $_GET['delete'];
+
+    // Consulta para deletar a venda
+    $stmtDelete = $pdo->prepare("DELETE FROM vendas WHERE id = :id");
+    $stmtDelete->bindParam(':id', $idVenda, PDO::PARAM_INT);
+    $stmtDelete->execute();
+    
+    // Redireciona para a página sem parâmetros de exclusão
+    header("Location: vendas.php");
+    exit();
+}
 
 // Inicialização de variáveis de filtro
 $mes = '';
@@ -19,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $produtoId = $_POST['produto'] ?? '';
     $precoMin = $_POST['preco_min'] ?? '';
     $precoMax = $_POST['preco_max'] ?? '';
-    $dataDia = $_POST['data_dia'] ?? ''; 
-    $formaPagamento = $_POST['forma_pagamento'] ?? ''; 
+    $dataDia = $_POST['data_dia'] ?? '';
+    $formaPagamento = $_POST['forma_pagamento'] ?? '';
 
     // Consulta para vendas filtradas
     $query = "SELECT v.*, p.nome AS produto_nome, v.forma_pagamento FROM vendas v JOIN produtos p ON v.id_produto = p.id";
@@ -63,22 +82,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $query .= " ORDER BY v.data_venda DESC";
-    // Executa a consulta filtrada
     $stmtFiltradas = $pdo->prepare($query);
     $stmtFiltradas->execute($params);
     $vendasFiltradas = $stmtFiltradas->fetchAll(PDO::FETCH_ASSOC);
 
-    // Soma das vendas filtradas
     $stmtTotalFiltradas = $pdo->prepare("SELECT SUM(total) FROM vendas v JOIN produtos p ON v.id_produto = p.id WHERE " . implode(' AND ', $whereClauses));
     $stmtTotalFiltradas->execute($params);
     $totalVendasFiltradas = $stmtTotalFiltradas->fetchColumn();
 } else {
-    // Consulta todas as vendas
     $stmt = $pdo->query("SELECT v.*, p.nome AS produto_nome, v.forma_pagamento FROM vendas v JOIN produtos p ON v.id_produto = p.id ORDER BY v.data_venda DESC");
     $vendasFiltradas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Consultas para contagem e totais de vendas no dia e geral
 $stmtDia = $pdo->prepare("SELECT COUNT(*) FROM vendas WHERE DATE(data_venda) = CURDATE()");
 $stmtDia->execute();
 $vendasNoDia = $stmtDia->fetchColumn();
@@ -90,6 +105,24 @@ $totalVendasDia = $stmtTotalDia->fetchColumn();
 $stmtTotalGeral = $pdo->prepare("SELECT SUM(total) FROM vendas");
 $stmtTotalGeral->execute();
 $totalGeralVendas = $stmtTotalGeral->fetchColumn();
+
+$anoAtual = date('Y');
+$stmtVendasMes = $pdo->prepare("
+    SELECT MONTH(data_venda) AS mes, SUM(total) AS total
+    FROM vendas
+    WHERE YEAR(data_venda) = :ano
+    GROUP BY MONTH(data_venda)
+    ORDER BY mes
+");
+$stmtVendasMes->execute(['ano' => $anoAtual]);
+$vendasPorMes = $stmtVendasMes->fetchAll(PDO::FETCH_ASSOC);
+
+$meses = [];
+$totais = [];
+foreach ($vendasPorMes as $venda) {
+    $meses[] = DateTime::createFromFormat('!m', $venda['mes'])->format('F');
+    $totais[] = $venda['total'];
+}
 ?>
 
 <!DOCTYPE html>
@@ -98,131 +131,163 @@ $totalGeralVendas = $stmtTotalGeral->fetchColumn();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Histórico de Vendas</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap">
     <style>
         body {
             font-family: 'Roboto', sans-serif;
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #4facfe, #00f2fe);
-            background-attachment: fixed;
-            color: #333;
+            background: #f4f4f9;
             display: flex;
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
         }
 
-        h1 {
+        header {
+            width: 100%;
+            background: #4CAF50;
+            color: white;
+            padding: 15px 0;
             text-align: center;
-            color: #fff;
-            margin-top: 20px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            font-size: 24px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .container {
             width: 90%;
             max-width: 1200px;
-            background: #ffffffcc;
+            background: white;
+            border-radius: 8px;
             padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15);
-            margin: 20px 0;
+            margin-top: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
         .filter-form {
             display: flex;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 20px;
             justify-content: space-between;
-            align-items: center;
         }
 
-        .filter-form label {
-            font-weight: bold;
-            color: #444;
+        .filter-form select, .filter-form input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
         }
 
-        .filter-form select,
-        .filter-form input,
-        .filter-form button {
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-            font-size: 16px;
-            width: calc(25% - 10px);
-            box-sizing: border-box;
-        }
-
-        .filter-form button {
-            background-color: #0078ff;
+        .filter-form button, .voltar-btn {
+            padding: 10px 20px;
+            background-color: #4CAF50;
             color: white;
             border: none;
-            transition: 0.3s ease;
+            border-radius: 4px;
             cursor: pointer;
         }
 
-        .filter-form button:hover {
-            background-color: #005bb5;
+        .filter-form button:hover, .voltar-btn:hover {
+            background-color: #45a049;
+        }
+
+        .filter-form .voltar-btn {
+            background-color: #2196F3;
+        }
+
+        .filter-form .voltar-btn:hover {
+            background-color: #1976D2;
+        }
+
+        .filter-form .button-group {
+            display: flex;
+            gap: 10px;
         }
 
         table {
             width: 100%;
             margin-top: 20px;
             border-collapse: collapse;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         table th, table td {
             padding: 12px;
             text-align: center;
-            border-bottom: 1px solid #ddd;
+            border: 1px solid #ddd;
         }
 
         table th {
-            background-color: #0078ff;
+            background-color: #4CAF50;
             color: white;
-            font-weight: bold;
         }
 
-        table tr:hover {
-            background-color: #f0f8ff;
+        .excluir-btn {
+            padding: 6px 12px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .excluir-btn:hover {
+            background-color: #d32f2f;
         }
 
         .total-vendas {
+            font-weight: bold;
             font-size: 18px;
             margin-top: 20px;
-            font-weight: bold;
-            color: #555;
             text-align: center;
+        }
+
+        #salesChart {
+            max-width: 800px;
+            margin: 40px auto;
         }
     </style>
 </head>
 <body>
-    <h1>Histórico de Vendas</h1>
-    <div class="container">
-        <div class="filter-form">
-            <form method="POST">
+
+<header>
+    Histórico de Vendas
+</header>
+
+<div class="container">
+    <div class="total-vendas">
+        <p>Total de vendas hoje: R$ <?= number_format($totalVendasDia, 2, ',', '.') ?></p>
+        <?php if (!empty($totalVendasFiltradas)): ?>
+            <p>Total das vendas filtradas: R$ <?= number_format($totalVendasFiltradas, 2, ',', '.') ?></p>
+        <?php endif; ?>
+    </div>
+
+    <h2>Filtros de Pesquisa</h2>
+    <div class="filter-form">
+        <form method="POST">
+            <div>
                 <label for="mes">Mês:</label>
                 <select name="mes" id="mes">
                     <?php for ($m = 1; $m <= 12; $m++): ?>
                         <option value="<?= $m ?>" <?= $m == $mes ? 'selected' : '' ?>><?= str_pad($m, 2, '0', STR_PAD_LEFT) ?></option>
                     <?php endfor; ?>
                 </select>
+            </div>
 
+            <div>
                 <label for="ano">Ano:</label>
                 <select name="ano" id="ano">
                     <?php for ($a = date('Y'); $a >= 2000; $a--): ?>
                         <option value="<?= $a ?>" <?= $a == $ano ? 'selected' : '' ?>><?= $a ?></option>
                     <?php endfor; ?>
                 </select>
+            </div>
 
-                <label for="data_dia">Data do Dia:</label>
+            <div>
+                <label for="data_dia">Data:</label>
                 <input type="date" name="data_dia" id="data_dia" value="<?= htmlspecialchars($dataDia) ?>">
+            </div>
 
+            <div>
                 <label for="forma_pagamento">Forma de Pagamento:</label>
                 <select name="forma_pagamento" id="forma_pagamento">
                     <option value="">Todos</option>
@@ -231,50 +296,80 @@ $totalGeralVendas = $stmtTotalGeral->fetchColumn();
                     <option value="pix" <?= $formaPagamento == 'pix' ? 'selected' : '' ?>>PIX</option>
                     <option value="debito" <?= $formaPagamento == 'debito' ? 'selected' : '' ?>>Débito</option>
                 </select>
+            </div>
 
+            <div class="button-group">
                 <button type="submit">Filtrar</button>
-                <a href="index.php" style="text-decoration:none;"><button type="button" style="background-color:#28a745;">Voltar ao Estoque</button></a>
-            </form>
-        </div>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Produto</th>
-                    <th>Quantidade</th>
-                    <th>Total</th>
-                    <th>Data</th>
-                    <th>Forma de Pagamento</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (!empty($vendasFiltradas)): ?>
-                    <?php foreach ($vendasFiltradas as $venda): ?>
-                        <tr>
-                            <td><?= htmlspecialchars($venda['id']) ?></td>
-                            <td><?= htmlspecialchars($venda['produto_nome']) ?></td>
-                            <td><?= htmlspecialchars($venda['quantidade']) ?></td>
-                            <td>R$ <?= number_format($venda['total'], 2, ',', '.') ?></td>
-                            <td><?= htmlspecialchars($venda['data_venda']) ?></td>
-                            <td><?= htmlspecialchars($venda['forma_pagamento']) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <tr>
-                        <td colspan="6">Nenhuma venda encontrada.</td>
-                    </tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-
-        <div class="total-vendas">
-            <p>Total de vendas hoje: R$ <?= number_format($totalVendasDia, 2, ',', '.') ?></p>
-            <p>Total geral de vendas: R$ <?= number_format($totalGeralVendas, 2, ',', '.') ?></p>
-            <?php if (!empty($totalVendasFiltradas)): ?>
-                <p>Total das vendas filtradas: R$ <?= number_format($totalVendasFiltradas, 2, ',', '.') ?></p>
-            <?php endif; ?>
-        </div>
+                <a href="index.php" class="voltar-btn">Voltar para o Índice</a>
+            </div>
+        </form>
     </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Produto</th>
+                <th>Quantidade</th>
+                <th>Total</th>
+                <th>Data</th>
+                <th>Forma de Pagamento</th>
+                <th>Excluir</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if (!empty($vendasFiltradas)): ?>
+                <?php foreach ($vendasFiltradas as $venda): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($venda['id']) ?></td>
+                        <td><?= htmlspecialchars($venda['produto_nome']) ?></td>
+                        <td><?= htmlspecialchars($venda['quantidade']) ?></td>
+                        <td>R$ <?= number_format($venda['total'], 2, ',', '.') ?></td>
+                        <td><?= htmlspecialchars($venda['data_venda']) ?></td>
+                        <td><?= htmlspecialchars($venda['forma_pagamento']) ?></td>
+                        <td><a href="?delete=<?= $venda['id'] ?>" class="excluir-btn" onclick="return confirm('Tem certeza que deseja excluir esta venda?')">Excluir</a></td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <tr>
+                    <td colspan="7">Nenhuma venda encontrada.</td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</div>
+
+<canvas id="salesChart"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('salesChart').getContext('2d');
+    const meses = <?= json_encode($meses) ?>;
+    const totais = <?= json_encode($totais) ?>;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: meses,
+            datasets: [{
+                label: 'Total de Vendas (R$)',
+                data: totais,
+                backgroundColor: 'rgba(66, 133, 244, 0.6)',
+                borderColor: 'rgb(66, 133, 244)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            indexAxis: 'x',
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+</script>
+
 </body>
 </html>

@@ -33,13 +33,17 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Controle de Estoque</title>
+   
+    <!-- Link para o botão "Sair" -->
+    <a href="logout.php">Sair</a> 
+
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             background-color: #2C3E50; /* Fundo escuro (navy) */
-            color: #ECF0F1; /* Texto em cinza claro */
+            color:rgb(27, 234, 241); /* Texto em cinza claro */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -126,7 +130,7 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
         }
 
         tr:hover {
-            background-color: rgba(240, 255, 240, 0.9);
+            background-color: rgba(20, 27, 20, 0.9);
             transition: background-color 0.3s;
         }
 
@@ -140,7 +144,7 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
         }
 
         .status.orange {
-            color: #F39C12; /* Cor dourada */
+            color:rgb(244, 248, 27); /* Cor dourada */
         }
 
         .status.green {
@@ -185,6 +189,29 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
             font-weight: bold;
         }
 
+        .quantidade-baixa {
+            color: yellow; /* Destaque amarelo para quantidade baixa */
+        }
+
+        /* Estilo para o link "Sair" */
+        a[href="logout.php"] {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white; /* Cor branca para o link */
+            font-size: 18px;
+            text-decoration: none; /* Remove o sublinhado */
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: rgba(0, 0, 0, 0.2); /* Fundo semitransparente */
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        a[href="logout.php"]:hover {
+            background-color: rgba(0, 0, 0, 0.4); /* Escurece o fundo no hover */
+            transform: scale(1.05); /* Aumenta ligeiramente o link no hover */
+        }
     </style>
 </head>
 <body>
@@ -232,7 +259,7 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
                             $quantidade = $produto['quantidade'];
                             $valorVenda = $preco * 1.5;
                             $lucroUnitario = $valorVenda - $preco;
-                            $porcentagemLucro = ($lucroUnitario / $preco) * 100;
+                            $porcentagemLucro = ($lucroUnitario / $preco) * 50;
                             $totalCusto = $preco * $quantidade;
                             $totalVenda = $valorVenda * $quantidade;
                             $totalLucro = $totalVenda - $totalCusto;
@@ -244,7 +271,7 @@ $produtos = obterProdutos($conn, $filtroPesquisa);
                             <td><?= htmlspecialchars($produto['nome']) ?></td>
                             <td><?= htmlspecialchars($produto['validade']) ?></td>
                             <td>R$<?= number_format($preco, 2, ',', '.') ?></td>
-                            <td><?= htmlspecialchars($produto['quantidade']) ?></td>
+                            <td class="<?= ($quantidade < 5) ? 'quantidade-baixa' : '' ?>"><?= htmlspecialchars($produto['quantidade']) ?></td>
                             <td>R$<?= number_format($valorVenda, 2, ',', '.') ?></td>
                             <td>R$<?= number_format($lucroUnitario, 2, ',', '.') ?></td>
                             <td><?= number_format($porcentagemLucro, 2, ',', '.') ?>%</td>
